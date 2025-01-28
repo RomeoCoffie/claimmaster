@@ -44,6 +44,23 @@ const TIME_RANGES = [
   'All Time'
 ];
 
+const HEALTH_CATEGORIES = [
+  'Nutrition',
+  'Fitness',
+  'Mental Health',
+  'Alternative Medicine',
+  'Weight Loss',
+  'Supplements',
+  'Holistic Health',
+  'Medical Information',
+  'Women\'s Health',
+  'Men\'s Health',
+  'Pediatric Health',
+  'Senior Health',
+  'Sports Medicine',
+  'Chronic Disease Management'
+];
+
 function ResearchConfig({ onStartResearch }) {
   const navigate = useNavigate();
   const [config, setConfig] = useState({
@@ -58,7 +75,9 @@ function ResearchConfig({ onStartResearch }) {
     notes: '',
     startDate: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000), // 6 months ago
     endDate: new Date(),
-    isDateRangeValid: true
+    isDateRangeValid: true,
+    selectedCategories: [],
+    influencersCount: 10
   });
 
   // Add state for loading, error, and snackbar
@@ -117,8 +136,39 @@ function ResearchConfig({ onStartResearch }) {
         
         // Navigate to the profile using the influencer name
         navigate(`/profile/${encodeURIComponent(config.influencerName)}`);
-      } else {
-        navigate('/leaderboard');
+      } else if (config.mode === 'discover') {
+        if (config.selectedCategories.length === 0) {
+          throw new Error('Please select at least one health category');
+        }
+
+        // Call onStartResearch and navigate immediately
+        await onStartResearch(config);
+        navigate('/leaderboard', { 
+          state: { 
+            config,
+            isResearchInProgress: true
+          }
+        });
+
+        // Start the research process in the background
+        const researchResponse = await fetch('http://localhost:8000/api/research/discover', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            categories: config.selectedCategories,
+            influencers_count: config.influencersCount,
+            include_revenue: config.includeRevenue,
+            verify_with_journals: config.verifyWithJournals,
+            selected_journals: config.selectedJournals
+          }),
+        });
+
+        if (!researchResponse.ok) {
+          const errorData = await researchResponse.json();
+          throw new Error(errorData.detail || 'Failed to start research');
+        }
       }
     } catch (err) {
       console.error('Research error:', err);
@@ -249,104 +299,167 @@ function ResearchConfig({ onStartResearch }) {
               </Grid>
             </Grid>
 
-            <Box sx={{ mt: 3 }}>
-              <Typography variant="subtitle1" gutterBottom>
-                Time Range
-              </Typography>
-              <LocalizationProvider dateAdapter={AdapterDateFns}>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={6}>
-                    <DatePicker
-                      label="From"
-                      value={config.startDate}
-                      onChange={(newValue) => handleDateRangeChange(newValue, null)}
-                      maxDate={config.endDate}
-                      slotProps={{
-                        textField: {
-                          fullWidth: true,
-                          error: !config.isDateRangeValid
-                        }
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <DatePicker
-                      label="To"
-                      value={config.endDate}
-                      onChange={(newValue) => handleDateRangeChange(null, newValue)}
-                      minDate={config.startDate}
-                      maxDate={new Date()}
-                      slotProps={{
-                        textField: {
-                          fullWidth: true,
-                          error: !config.isDateRangeValid
-                        }
-                      }}
-                    />
-                  </Grid>
-                </Grid>
-                {!config.isDateRangeValid && (
-                  <Alert severity="error" sx={{ mt: 2 }}>
-                    Please select a valid date range (up to 2 years, not in the future)
-                  </Alert>
-                )}
-              </LocalizationProvider>
-            </Box>
-
             {config.mode === 'specific' && (
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle1" gutterBottom>
-                  Influencer Name
-                </Typography>
-                <TextField
-                  fullWidth
-                  placeholder="Enter influencer name"
-                  value={config.influencerName}
-                  onChange={(e) => setConfig({ ...config, influencerName: e.target.value })}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Search sx={{ color: 'text.secondary' }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Box>
+              <>
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Time Range
+                  </Typography>
+                  <LocalizationProvider dateAdapter={AdapterDateFns}>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} md={6}>
+                        <DatePicker
+                          label="From"
+                          value={config.startDate}
+                          onChange={(newValue) => handleDateRangeChange(newValue, null)}
+                          maxDate={config.endDate}
+                          slotProps={{
+                            textField: {
+                              fullWidth: true,
+                              error: !config.isDateRangeValid
+                            }
+                          }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <DatePicker
+                          label="To"
+                          value={config.endDate}
+                          onChange={(newValue) => handleDateRangeChange(null, newValue)}
+                          minDate={config.startDate}
+                          maxDate={new Date()}
+                          slotProps={{
+                            textField: {
+                              fullWidth: true,
+                              error: !config.isDateRangeValid
+                            }
+                          }}
+                        />
+                      </Grid>
+                    </Grid>
+                    {!config.isDateRangeValid && (
+                      <Alert severity="error" sx={{ mt: 2 }}>
+                        Please select a valid date range (up to 2 years, not in the future)
+                      </Alert>
+                    )}
+                  </LocalizationProvider>
+                </Box>
+
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Influencer Name
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    placeholder="Enter influencer name"
+                    value={config.influencerName}
+                    onChange={(e) => setConfig({ ...config, influencerName: e.target.value })}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Search sx={{ color: 'text.secondary' }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </Box>
+
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Products to Find Per Influencer
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    value={config.productsCount}
+                    onChange={handleProductsCountChange}
+                    inputProps={{
+                      min: 0,
+                      max: 10,
+                      step: 1
+                    }}
+                    helperText="Set to 0 to skip product research (max: 10)"
+                    FormHelperTextProps={{
+                      sx: { color: 'text.secondary' }
+                    }}
+                    sx={{
+                      '& input': {
+                        color: 'white'
+                      },
+                      '& .MuiOutlinedInput-root': {
+                        '& fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.23)'
+                        },
+                        '&:hover fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.4)'
+                        }
+                      }
+                    }}
+                  />
+                </Box>
+
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Claims to Analyze
+                  </Typography>
+                  <TextField
+                    type="number"
+                    value={config.claimsToAnalyze}
+                    onChange={(e) => setConfig({ ...config, claimsToAnalyze: parseInt(e.target.value) || 50 })}
+                    helperText="Recommended: 50-100 claims for comprehensive analysis"
+                    fullWidth
+                  />
+                </Box>
+              </>
             )}
 
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle1" gutterBottom>
-                Products to Find Per Influencer
-              </Typography>
-              <TextField
-                fullWidth
-                type="number"
-                value={config.productsCount}
-                onChange={handleProductsCountChange}
-                inputProps={{
-                  min: 0,
-                  max: 10,
-                  step: 1
-                }}
-                helperText="Set to 0 to skip product research (max: 10)"
-                FormHelperTextProps={{
-                  sx: { color: 'text.secondary' }
-                }}
-                sx={{
-                  '& input': {
-                    color: 'white'
-                  },
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.23)'
-                    },
-                    '&:hover fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.4)'
-                    }
-                  }
-                }}
-              />
-            </Box>
+            {config.mode === 'discover' && (
+              <>
+                <Box sx={{ mt: 3, mb: 3 }}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Health Categories
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Select the health fields you want to explore
+                  </Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap">
+                    {HEALTH_CATEGORIES.map((category) => (
+                      <Chip
+                        key={category}
+                        label={category}
+                        onClick={() => {
+                          const categories = config.selectedCategories.includes(category)
+                            ? config.selectedCategories.filter(c => c !== category)
+                            : [...config.selectedCategories, category];
+                          setConfig({ ...config, selectedCategories: categories });
+                        }}
+                        color={config.selectedCategories.includes(category) ? 'primary' : 'default'}
+                        variant={config.selectedCategories.includes(category) ? 'filled' : 'outlined'}
+                        sx={{ mb: 1 }}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Number of Influencers
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    value={config.influencersCount}
+                    onChange={(e) => setConfig({ ...config, influencersCount: Math.max(1, Math.min(50, parseInt(e.target.value) || 10)) })}
+                    inputProps={{
+                      min: 1,
+                      max: 50,
+                      step: 1
+                    }}
+                    helperText="How many influencers to discover (max: 50)"
+                  />
+                </Box>
+              </>
+            )}
 
             <Box sx={{ mb: 3 }}>
               <FormControlLabel
@@ -401,46 +514,19 @@ function ResearchConfig({ onStartResearch }) {
                       sx={{ mb: 1 }}
                     />
                   ))}
-                  <IconButton color="primary" size="small">
-                    <AddIcon />
-                  </IconButton>
                 </Stack>
               </Box>
             )}
-
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle1" gutterBottom>
-                Claims to Analyze
-              </Typography>
-              <TextField
-                type="number"
-                value={config.claimsToAnalyze}
-                onChange={(e) => setConfig({ ...config, claimsToAnalyze: parseInt(e.target.value) || 50 })}
-                helperText="Recommended: 50-100 claims for comprehensive analysis"
-                fullWidth
-              />
-            </Box>
-
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle1" gutterBottom>
-                Notes for Research Assistant
-              </Typography>
-              <TextField
-                multiline
-                rows={4}
-                fullWidth
-                placeholder="Add any specific instructions or focus areas..."
-                value={config.notes}
-                onChange={(e) => setConfig({ ...config, notes: e.target.value })}
-              />
-            </Box>
 
             <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button
                 variant="contained"
                 size="large"
                 onClick={handleStartResearch}
-                disabled={!config.isDateRangeValid}
+                disabled={
+                  (config.mode === 'specific' && (!config.influencerName || !config.isDateRangeValid)) ||
+                  (config.mode === 'discover' && config.selectedCategories.length === 0)
+                }
                 startIcon={<Search />}
               >
                 Start Research

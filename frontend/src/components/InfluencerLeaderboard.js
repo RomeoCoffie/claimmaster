@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
   Paper,
@@ -12,21 +13,144 @@ import {
   Chip,
   CircularProgress,
   Alert,
+  TextField,
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Grid
 } from '@mui/material';
-import { TrendingUp, TrendingDown } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { TrendingUp, TrendingDown, Search } from '@mui/icons-material';
+import DiscoveryProgress from './DiscoveryProgress';
 
-function InfluencerLeaderboard({ influencers, loading, error }) {
+function InfluencerLeaderboard() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [influencers, setInfluencers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('trustScore');
+  const [researchStage, setResearchStage] = useState('searching');
+  const [researchLogs, setResearchLogs] = useState([]);
+
+  useEffect(() => {
+    const fetchInfluencers = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // If we have state from research, start polling
+        if (location.state?.config?.mode === 'discover') {
+          let attempts = 0;
+          const maxAttempts = 30;
+          
+          const pollResearch = async () => {
+            try {
+              const response = await fetch('http://localhost:8000/api/research/status');
+              if (!response.ok) {
+                throw new Error('Failed to fetch research status');
+              }
+              
+              const data = await response.json();
+              
+              // Update logs if available
+              if (data.logs) {
+                setResearchLogs(data.logs);
+              }
+              
+              // Update stage based on status
+              if (data.stage) {
+                setResearchStage(data.stage);
+              }
+              
+              // If research is complete, set the influencers
+              if (data.status === 'complete' && data.influencers) {
+                setInfluencers(data.influencers);
+                setLoading(false);
+                return true;
+              }
+              
+              // If still in progress, continue polling
+              if (attempts < maxAttempts) {
+                attempts++;
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                return pollResearch();
+              }
+              
+              throw new Error('Research timed out. Please try again.');
+              
+            } catch (err) {
+              console.error('Polling error:', err);
+              setError(err.message);
+              setLoading(false);
+              return false;
+            }
+          };
+          
+          await pollResearch();
+          
+        } else {
+          // Otherwise fetch existing influencers
+          const response = await fetch('http://localhost:8000/api/influencers');
+          if (!response.ok) {
+            throw new Error('Failed to fetch influencers');
+          }
+          const data = await response.json();
+          setInfluencers(data.influencers || []);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error('Error fetching influencers:', err);
+        setError(err.message);
+        setLoading(false);
+      }
+    };
+
+    fetchInfluencers();
+  }, [location.state]);
 
   const categories = Array.from(
-    new Set(influencers.map((inf) => inf.category))
+    new Set(influencers.flatMap(inf => inf.topics || [inf.category]).filter(Boolean))
   );
 
-  const filteredInfluencers = selectedCategory
-    ? influencers.filter((inf) => inf.category === selectedCategory)
-    : influencers;
+  // Filter and sort influencers
+  const filteredInfluencers = influencers
+    .filter(inf => {
+      const matchesSearch = 
+        inf.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (inf.bio || '').toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory = 
+        !selectedCategory || 
+        (inf.topics || [inf.category]).includes(selectedCategory);
+      return matchesSearch && matchesCategory;
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'trustScore':
+          return b.trustScore - a.trustScore;
+        case 'followers':
+          return b.followers - a.followers;
+        case 'verifiedClaims':
+          return (b.claims?.filter(c => c.status === 'verified')?.length || 0) - 
+                 (a.claims?.filter(c => c.status === 'verified')?.length || 0);
+        default:
+          return 0;
+      }
+    });
+
+  // Show progress component while loading in discover mode
+  if (loading && location.state?.config?.mode === 'discover') {
+    return (
+      <DiscoveryProgress
+        currentStage={researchStage}
+        error={error}
+        logs={researchLogs}
+      />
+    );
+  }
 
   if (loading) {
     return (
@@ -47,29 +171,60 @@ function InfluencerLeaderboard({ influencers, loading, error }) {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>
-        Influencer Trust Leaderboard
+        Health Influencer Leaderboard
       </Typography>
 
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle1" gutterBottom>
-          Filter by Category
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Chip
-            label="All"
-            onClick={() => setSelectedCategory(null)}
-            color={selectedCategory === null ? 'primary' : 'default'}
-          />
-          {categories.map((category) => (
-            <Chip
-              key={category}
-              label={category}
-              onClick={() => setSelectedCategory(category)}
-              color={selectedCategory === category ? 'primary' : 'default'}
+      {/* Filters and Search */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Grid container spacing={2} alignItems="center">
+          <Grid item xs={12} md={4}>
+            <TextField
+              fullWidth
+              placeholder="Search influencers..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search />
+                  </InputAdornment>
+                ),
+              }}
             />
-          ))}
-        </Box>
-      </Box>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <FormControl fullWidth>
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={selectedCategory || ''}
+                onChange={(e) => setSelectedCategory(e.target.value || null)}
+                label="Category"
+              >
+                <MenuItem value="">All Categories</MenuItem>
+                {categories.map((category) => (
+                  <MenuItem key={category} value={category}>
+                    {category}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <FormControl fullWidth>
+              <InputLabel>Sort By</InputLabel>
+              <Select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                label="Sort By"
+              >
+                <MenuItem value="trustScore">Trust Score</MenuItem>
+                <MenuItem value="followers">Followers</MenuItem>
+                <MenuItem value="verifiedClaims">Verified Claims</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+        </Grid>
+      </Paper>
 
       <TableContainer component={Paper}>
         <Table>
@@ -87,26 +242,30 @@ function InfluencerLeaderboard({ influencers, loading, error }) {
           <TableBody>
             {filteredInfluencers.map((influencer, index) => (
               <TableRow
-                key={influencer.id}
+                key={influencer.name}
                 hover
-                onClick={() => navigate(`/profile/${influencer.id}`)}
+                onClick={() => navigate(`/profile/${encodeURIComponent(influencer.name)}`)}
                 sx={{ cursor: 'pointer' }}
               >
                 <TableCell>{index + 1}</TableCell>
                 <TableCell>{influencer.name}</TableCell>
-                <TableCell>{influencer.category}</TableCell>
-                <TableCell align="right">{influencer.trustScore.toFixed(1)}</TableCell>
+                <TableCell>{influencer.topics?.[0] || influencer.category}</TableCell>
+                <TableCell align="right">{influencer.trustScore.toFixed(1)}%</TableCell>
                 <TableCell align="right">
-                  {influencer.trend === 'up' ? (
-                    <TrendingUp color="success" />
-                  ) : influencer.trend === 'down' ? (
-                    <TrendingDown color="error" />
-                  ) : null}
+                  {influencer.trustScoreHistory?.length > 1 && (
+                    influencer.trustScoreHistory[0].score > influencer.trustScoreHistory[1].score ? (
+                      <TrendingUp color="success" />
+                    ) : (
+                      <TrendingDown color="error" />
+                    )
+                  )}
                 </TableCell>
                 <TableCell align="right">
                   {new Intl.NumberFormat().format(influencer.followers)}
                 </TableCell>
-                <TableCell align="right">{influencer.verifiedClaims}</TableCell>
+                <TableCell align="right">
+                  {influencer.claims?.filter(c => c.status === 'verified')?.length || 0}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

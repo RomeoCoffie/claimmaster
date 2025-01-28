@@ -13,6 +13,7 @@ from verification import ClaimVerifier
 import aiohttp
 import logging
 import traceback
+import time
 
 # Load environment variables
 load_dotenv()
@@ -108,6 +109,13 @@ class ResearchRequest(BaseModel):
     selected_journals: List[str]
     claims_to_analyze: int
     notes: Optional[str] = None
+
+class DiscoverRequest(BaseModel):
+    categories: List[str]
+    influencers_count: int = Field(default=10, ge=1, le=50)
+    include_revenue: bool = True
+    verify_with_journals: bool = True
+    selected_journals: List[str] = []
 
 # Initialize API key
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
@@ -512,3 +520,202 @@ async def start_research(request: ResearchRequest):
             research_status[request.influencer_name]["stage"] = "error"
             research_status[request.influencer_name]["error"] = error_msg
         raise HTTPException(status_code=500, detail=error_msg) 
+
+@app.get("/api/research/status")
+async def get_research_status():
+    """Get the current status of ongoing research"""
+    try:
+        # Return the most recent research status
+        if not research_status:
+            return {
+                "status": "no_research",
+                "message": "No research in progress"
+            }
+        
+        # Get the most recent research
+        latest_research = max(research_status.values(), key=lambda x: x.get('started_at', ''))
+        
+        return {
+            "status": latest_research.get('status', 'unknown'),
+            "stage": latest_research.get('stage', 'unknown'),
+            "logs": latest_research.get('logs', []),
+            "influencers": latest_research.get('influencers', [])
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting research status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get research status: {str(e)}"
+        )
+
+@app.post("/api/research/discover")
+async def discover_influencers(request: DiscoverRequest):
+    """Discover new health influencers based on categories"""
+    try:
+        research_id = f"discover_{int(time.time())}"
+        logger.info(f"Starting discovery research [{research_id}] for categories: {request.categories}")
+        
+        # Initialize research status
+        research_status[research_id] = {
+            "status": "in_progress",
+            "stage": "searching",
+            "started_at": datetime.now().isoformat(),
+            "logs": []
+        }
+        
+        def log_stage(stage: str, message: str):
+            timestamp = datetime.now().isoformat()
+            log_entry = {"timestamp": timestamp, "stage": stage, "message": message}
+            research_status[research_id]["logs"].append(log_entry)
+            research_status[research_id]["stage"] = stage
+            logger.info(f"[{research_id}] {stage}: {message}")
+        
+        # Build the query for Perplexity with explicit JSON structure
+        query = (
+            f"Find {request.influencers_count} most influential health content creators "
+            f"in these categories: {', '.join(request.categories)}.\n\n"
+            f"Return the response in this exact JSON format:\n"
+            f"{{\n"
+            f'  "influencers": [\n'
+            f'    {{\n'
+            f'      "name": "Full Name",\n'
+            f'      "platforms": ["Platform1", "Platform2"],\n'
+            f'      "bio": "Brief professional bio",\n'
+            f'      "followers": 1000000,\n'
+            f'      "topics": ["Topic1", "Topic2"],\n'
+            f'      "claims": [\n'
+            f'        {{\n'
+            f'          "text": "Health claim text",\n'
+            f'          "date": "2024-01-01",\n'
+            f'          "status": "verified"\n'
+            f'        }}\n'
+            f'      ],\n'
+            f'      "trustScore": 85.5,\n'
+            f'      "avatar": "https://example.com/image.jpg",\n'
+            f'      "trustScoreHistory": [\n'
+            f'        {{\n'
+            f'          "date": "2024-01-01",\n'
+            f'          "score": 85.5\n'
+            f'        }}\n'
+            f'      ]'
+        )
+        
+        if request.include_revenue:
+            query += ',\n      "yearlyRevenue": 1000000'
+            
+        query += "\n    }\n  ]\n}"
+            
+        query += (
+            f"\n\nImportant instructions:\n"
+            f"1. Return real data for {request.influencers_count} different health influencers\n"
+            f"2. For each influencer's avatar field:\n"
+            f"   - Use their official website or YouTube channel image URL\n"
+            f"   - Must be a direct link to a .jpg, .png, or .webp file\n"
+            f"   - If no reliable image found, use empty string\n"
+            f"3. Calculate trust scores based on:\n"
+            f"   - Professional credentials\n"
+            f"   - Content accuracy\n"
+            f"   - Scientific citations\n"
+            f"4. Include at least 3 recent claims per influencer\n"
+            f"5. Ensure all dates are in YYYY-MM-DD format\n"
+            f"6. Use real follower counts\n"
+        )
+        
+        if request.verify_with_journals:
+            query += f"7. Verify claims using: {', '.join(request.selected_journals)}\n"
+            
+        log_stage("analyzing", "Analyzing influencer profiles and content")
+        
+        # Get response from Perplexity
+        response_text = await perplexity_client.query(query)
+        
+        try:
+            discovered_data = json.loads(response_text)
+            
+            # Validate the response structure
+            if not isinstance(discovered_data, dict) or 'influencers' not in discovered_data:
+                raise ValueError("Response missing 'influencers' array")
+                
+            if not isinstance(discovered_data['influencers'], list):
+                raise ValueError("'influencers' must be an array")
+                
+            if len(discovered_data['influencers']) == 0:
+                raise ValueError("No influencers found")
+                
+            for influencer in discovered_data['influencers']:
+                required_fields = {
+                    'name': str,
+                    'platforms': list,
+                    'bio': str,
+                    'followers': int,
+                    'topics': list,
+                    'claims': list,
+                    'trustScore': (int, float),
+                    'avatar': str,
+                    'trustScoreHistory': list
+                }
+                
+                for field, expected_type in required_fields.items():
+                    if field not in influencer:
+                        raise ValueError(f"Influencer missing required field: {field}")
+                    if not isinstance(influencer[field], expected_type):
+                        raise ValueError(f"Field {field} has incorrect type")
+                
+                # Add additional fields if requested
+                if request.include_revenue:
+                    if 'yearlyRevenue' not in influencer:
+                        raise ValueError("Missing yearly revenue data")
+                    if not isinstance(influencer['yearlyRevenue'], (int, float)):
+                        raise ValueError("Invalid yearly revenue type")
+                
+                # Clean and validate avatar URL
+                if influencer['avatar']:
+                    avatar_url = influencer['avatar'].lower()
+                    blocked_patterns = [
+                        'fbcdn.net', 'instagram.com', 'facebook.com',
+                        'twimg.com', 't.co',
+                        'temporary', 'temp', 'cdn-cgi',
+                        'profile_images', 'avatars'
+                    ]
+                    if any(pattern in avatar_url for pattern in blocked_patterns):
+                        influencer['avatar'] = ""
+                    else:
+                        valid_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+                        if not any(avatar_url.endswith(ext) for ext in valid_extensions):
+                            influencer['avatar'] = ""
+                
+            log_stage("verifying", "Verifying influencer claims")
+            
+            # Store the results
+            research_status[research_id]["status"] = "complete"
+            research_status[research_id]["stage"] = "complete"
+            research_status[research_id]["influencers"] = discovered_data["influencers"]
+            log_stage("complete", f"Successfully discovered {len(discovered_data['influencers'])} influencers")
+            
+            return discovered_data
+            
+        except json.JSONDecodeError as e:
+            log_stage("error", f"Failed to parse discovery results: {str(e)}")
+            research_status[research_id]["status"] = "error"
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to parse discovery results: {str(e)}"
+            )
+        except ValueError as e:
+            log_stage("error", str(e))
+            research_status[research_id]["status"] = "error"
+            raise HTTPException(
+                status_code=500,
+                detail=str(e)
+            )
+            
+    except Exception as e:
+        logger.error(f"Discovery research failed: {str(e)}\n{traceback.format_exc()}")
+        if research_id in research_status:
+            research_status[research_id]["status"] = "error"
+            research_status[research_id]["stage"] = "error"
+        raise HTTPException(
+            status_code=500,
+            detail=f"Discovery research failed: {str(e)}"
+        ) 
