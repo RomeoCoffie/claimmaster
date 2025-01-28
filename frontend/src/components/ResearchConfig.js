@@ -12,7 +12,10 @@ import {
   Chip,
   Stack,
   InputAdornment,
-  Link
+  Link,
+  Alert,
+  CircularProgress,
+  Snackbar
 } from '@mui/material';
 import {
   ArrowBack,
@@ -52,17 +55,104 @@ function ResearchConfig({ onStartResearch }) {
     notes: ''
   });
 
-  const handleStartResearch = () => {
-    onStartResearch(config);
-    if (config.mode === 'specific' && config.influencerName) {
-      navigate(`/profile/${encodeURIComponent(config.influencerName)}`);
-    } else {
-      navigate('/leaderboard');
+  // Add state for loading, error, and snackbar
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'info'
+  });
+
+  // Add snackbar close handler
+  const handleSnackbarClose = () => {
+    setSnackbar(prev => ({ ...prev, open: false }));
+  };
+
+  const handleStartResearch = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      if (config.mode === 'specific' && config.influencerName) {
+        // First create/update the influencer profile through research
+        const researchResponse = await fetch('http://localhost:8000/api/research', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            influencer_name: config.influencerName,
+            time_range: config.timeRange,
+            include_revenue: config.includeRevenue,
+            verify_with_journals: config.verifyWithJournals,
+            selected_journals: config.selectedJournals,
+            claims_to_analyze: config.claimsToAnalyze,
+            notes: config.notes
+          }),
+        });
+
+        if (!researchResponse.ok) {
+          const errorData = await researchResponse.json();
+          throw new Error(errorData.detail || 'Failed to start research');
+        }
+
+        const researchData = await researchResponse.json();
+        
+        // Call the parent's onStartResearch callback
+        await onStartResearch(config);
+        
+        // Navigate to the profile using the influencer name
+        navigate(`/profile/${encodeURIComponent(config.influencerName)}`);
+      } else {
+        navigate('/leaderboard');
+      }
+    } catch (err) {
+      console.error('Research error:', err);
+      setError(err.message || 'Failed to start research. Please try again.');
+      setSnackbar({
+        open: true,
+        message: err.message || 'Failed to start research. Please try again.',
+        severity: 'error'
+      });
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  const handleProductsCountChange = (event) => {
+    const value = parseInt(event.target.value) || 0;
+    // Clamp value between 0 and 10
+    const clampedValue = Math.min(Math.max(value, 0), 10);
+    setConfig({ ...config, productsCount: clampedValue });
   };
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      
+      {isLoading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+          <CircularProgress />
+        </Box>
+      )}
+
+      {/* Add Snackbar component */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert onClose={handleSnackbarClose} severity={snackbar.severity}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+
       <Box sx={{ mb: 4 }}>
         <Button
           startIcon={<ArrowBack />}
@@ -168,11 +258,32 @@ function ResearchConfig({ onStartResearch }) {
                 Products to Find Per Influencer
               </Typography>
               <TextField
+                fullWidth
                 type="number"
                 value={config.productsCount}
-                onChange={(e) => setConfig({ ...config, productsCount: parseInt(e.target.value) || 10 })}
-                helperText="Set to 0 to skip product research"
-                fullWidth
+                onChange={handleProductsCountChange}
+                inputProps={{
+                  min: 0,
+                  max: 10,
+                  step: 1
+                }}
+                helperText="Set to 0 to skip product research (max: 10)"
+                FormHelperTextProps={{
+                  sx: { color: 'text.secondary' }
+                }}
+                sx={{
+                  '& input': {
+                    color: 'white'
+                  },
+                  '& .MuiOutlinedInput-root': {
+                    '& fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.23)'
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.4)'
+                    }
+                  }
+                }}
               />
             </Box>
 

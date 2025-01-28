@@ -44,6 +44,7 @@ import {
   Tooltip as ChartTooltip,
   Legend
 } from 'chart.js';
+import ResearchProgress from './ResearchProgress';
 
 ChartJS.register(
   CategoryScale,
@@ -60,25 +61,115 @@ const InfluencerProfile = () => {
   const [influencer, setInfluencer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [researchStage, setResearchStage] = useState('Searching for influencer');
   const [claimFilter, setClaimFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  const [researchLogs, setResearchLogs] = useState([]);
 
   const loadInfluencerData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`http://localhost:8000/api/influencers/${id}`);
-      const data = await response.json();
-      setInfluencer(data);
+      
+      // Start polling for data
+      let attempts = 0;
+      const maxAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max
+      
+      const logStage = (stage, message) => {
+        console.log(`[${id}] ${stage}: ${message}`);
+        setResearchStage(stage);
+      };
+
+      // First, initiate the research
+      const researchRequest = {
+        influencer_name: id,
+        time_range: "last 6 months",
+        include_revenue: true,
+        verify_with_journals: true,
+        selected_journals: ["PubMed Central", "Nature", "Science"],
+        claims_to_analyze: 50
+      };
+
+      // Start the research process
+      const startResearch = await fetch('http://localhost:8000/api/research', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(researchRequest)
+      });
+
+      if (!startResearch.ok) {
+        const errorData = await startResearch.json();
+        throw new Error(errorData.detail || 'Failed to start research');
+      }
+
+      logStage('Searching for influencer', 'Starting research process');
+      
+      while (attempts < maxAttempts) {
+        const response = await fetch(`http://localhost:8000/api/influencers/${encodeURIComponent(id)}`);
+        
+        if (!response.ok) {
+          console.error(`[${id}] API Error:`, response.status, response.statusText);
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || 'Failed to fetch influencer data');
+        }
+
+        const data = await response.json();
+        
+        // Log any error messages from the backend
+        if (data.error) {
+          console.error(`[${id}] Backend Error:`, data.error);
+          throw new Error(data.error);
+        }
+
+        // Log progress from backend
+        if (data.logs) {
+          setResearchLogs(data.logs);
+          data.logs.forEach(log => {
+            console.log(`[${id}] ${log.stage}: ${log.message} (${log.timestamp})`);
+          });
+        }
+        
+        // Check if research is complete and we have data
+        if (data.status === 'complete' && data.id) {
+          logStage('Ready', 'Research completed successfully');
+          setInfluencer(data);
+          setLoading(false);
+          return;
+        }
+        
+        // Update research stage based on status
+        if (data.status === 'gathering_claims') {
+          logStage('gathering_claims', 'Collecting recent claims and content');
+        } else if (data.status === 'verifying_claims') {
+          logStage('verifying_claims', 'Cross-referencing with scientific journals');
+        } else if (data.status === 'error') {
+          throw new Error(data.message || 'Research failed');
+        }
+        
+        // Wait 2 seconds before next attempt
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        attempts++;
+        
+        // Log polling attempts
+        if (attempts % 5 === 0) {
+          console.log(`[${id}] Still waiting for research to complete. Attempt ${attempts}/${maxAttempts}`);
+        }
+      }
+      
+      throw new Error('Research timed out. Please try again.');
     } catch (err) {
+      console.error(`[${id}] Research Error:`, err);
       setError(err.message);
       setSnackbar({
         open: true,
-        message: 'Failed to load influencer data',
+        message: err.message,
         severity: 'error'
       });
+      setResearchStage('error');
     } finally {
       setLoading(false);
     }
@@ -86,38 +177,30 @@ const InfluencerProfile = () => {
 
   useEffect(() => {
     loadInfluencerData();
-  }, [id, loadInfluencerData]);
+  }, [id]);
 
-  if (loading || !influencer) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Box p={3}>
-        <Alert severity="error">{error}</Alert>
-      </Box>
-    );
+  if (loading || researchStage !== 'Ready') {
+    return <ResearchProgress 
+      currentStage={researchStage} 
+      error={error}
+      logs={researchLogs}
+    />;
   }
 
   // Filter claims based on current filters
-  const filteredClaims = influencer.claims.filter(claim => {
+  const filteredClaims = influencer?.claims?.filter(claim => {
     const matchesSearch = claim.text.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = claimFilter === 'all' || claim.status === claimFilter;
     const matchesCategory = selectedCategory === 'all' || claim.category === selectedCategory;
     return matchesSearch && matchesStatus && matchesCategory;
-  });
+  }) || [];
 
   const chartData = {
-    labels: influencer.trustScoreHistory.map(h => new Date(h.date).toLocaleDateString()),
+    labels: influencer?.trustScoreHistory?.map(h => new Date(h.date).toLocaleDateString()) || [],
     datasets: [
       {
         label: 'Trust Score',
-        data: influencer.trustScoreHistory.map(h => h.score),
+        data: influencer?.trustScoreHistory?.map(h => h.score) || [],
         borderColor: 'rgb(75, 192, 192)',
         backgroundColor: 'rgba(75, 192, 192, 0.1)',
         tension: 0.1,
@@ -185,18 +268,18 @@ const InfluencerProfile = () => {
         <Grid container spacing={3} alignItems="center">
           <Grid item>
             <Avatar
-              src={influencer.avatar}
-              alt={influencer.name}
+              src={influencer?.avatar}
+              alt={influencer?.name}
               sx={{ width: 120, height: 120 }}
             />
           </Grid>
           <Grid item xs>
-            <Typography variant="h4" gutterBottom>{influencer.name}</Typography>
+            <Typography variant="h4" gutterBottom>{influencer?.name}</Typography>
             <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-              {influencer.category}
+              {influencer?.category}
             </Typography>
             <Box sx={{ mt: 1 }}>
-              {influencer.topics.map((topic) => (
+              {influencer?.topics?.map((topic) => (
                 <Chip
                   key={topic}
                   label={topic}
@@ -209,8 +292,8 @@ const InfluencerProfile = () => {
           <Grid item>
             <Card sx={{ minWidth: 200, textAlign: 'center' }}>
               <CardContent>
-                <Typography variant="h3" sx={{ color: getTrustScoreColor(influencer.trustScore) }}>
-                  {influencer.trustScore.toFixed(1)}%
+                <Typography variant="h3" sx={{ color: getTrustScoreColor(influencer?.trustScore || 0) }}>
+                  {(influencer?.trustScore || 0).toFixed(1)}%
                 </Typography>
                 <Typography variant="subtitle2" color="text.secondary">
                   Trust Score
@@ -230,7 +313,7 @@ const InfluencerProfile = () => {
                 Yearly Revenue
               </Typography>
               <Typography variant="h4">
-                ${(influencer.yearlyRevenue / 1000000).toFixed(1)}M
+                ${((influencer?.yearlyRevenue || 0) / 1000000).toFixed(1)}M
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Estimated annual earnings
@@ -245,7 +328,7 @@ const InfluencerProfile = () => {
                 Products
               </Typography>
               <Typography variant="h4">
-                {influencer.productsCount}
+                {influencer?.productsCount || 0}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Active promoted products
@@ -260,7 +343,7 @@ const InfluencerProfile = () => {
                 Followers
               </Typography>
               <Typography variant="h4">
-                {(influencer.followers / 1000000).toFixed(1)}M
+                {((influencer?.followers || 0) / 1000000).toFixed(1)}M
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Total social media reach
@@ -325,7 +408,7 @@ const InfluencerProfile = () => {
                 label="Category"
               >
                 <MenuItem value="all">All Categories</MenuItem>
-                {influencer.topics.map((topic) => (
+                {influencer?.topics?.map((topic) => (
                   <MenuItem key={topic} value={topic}>{topic}</MenuItem>
                 ))}
               </Select>
