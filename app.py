@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Union
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import json
 import requests
@@ -102,7 +102,7 @@ class DiscoveredInfluencer(BaseModel):
 
 class ResearchRequest(BaseModel):
     influencer_name: str
-    time_range: str
+    date_range: DateRange
     include_revenue: bool
     verify_with_journals: bool
     selected_journals: List[str]
@@ -319,6 +319,25 @@ async def start_research(request: ResearchRequest):
     try:
         logger.info(f"Starting research for influencer: {request.influencer_name}")
         
+        # Get current time in UTC
+        current_time = datetime.now(timezone.utc)
+        
+        # Validate date range
+        if request.date_range.start_date > request.date_range.end_date:
+            raise HTTPException(status_code=400, detail="Start date must be before end date")
+            
+        # Ensure dates are timezone aware and in UTC
+        start_date = request.date_range.start_date.astimezone(timezone.utc)
+        end_date = request.date_range.end_date.astimezone(timezone.utc)
+        
+        if end_date > current_time:
+            raise HTTPException(status_code=400, detail="End date cannot be in the future")
+        
+        # Calculate date range duration in months
+        duration_months = (end_date - start_date).days / 30
+        if duration_months > 24:
+            raise HTTPException(status_code=400, detail="Date range cannot exceed 24 months")
+        
         # Update research status
         research_status[request.influencer_name] = {
             "stage": "gathering_claims",
@@ -342,7 +361,7 @@ async def start_research(request: ResearchRequest):
             f"{{\n"
             f'  "id": "{request.influencer_name}",\n'
             f'  "name": "{request.influencer_name}",\n'
-            f'  "avatar": "https://example.com/avatar.jpg",\n'
+            f'  "avatar": "PUBLIC_IMAGE_URL",\n'
             f'  "category": "Health & Wellness",\n'
             f'  "topics": ["Nutrition", "Fitness", "Mental Health"],\n'
             f'  "trustScore": 85.5,\n'
@@ -368,11 +387,18 @@ async def start_research(request: ResearchRequest):
             f"}}\n\n"
             f"Important instructions:\n"
             f"1. Use real data about {request.influencer_name}\n"
-            f"2. Include at least 5 recent claims\n"
-            f"3. Provide accurate follower count\n"
-            f"4. Calculate trust score based on claim verification\n"
-            f"5. Include real product count and revenue estimates\n"
-            f"Focus on content from the {request.time_range.lower()}. "
+            f"2. For the avatar field, find and include a publicly accessible profile image URL that:\n"
+            f"   - Comes from their official website, YouTube channel, or other public platform\n"
+            f"   - Is a permanent, direct link to the image file (not a CDN or temporary URL)\n"
+            f"   - Prefers .jpg, .png, or .webp formats\n"
+            f"   - Must be from a reliable source that allows direct image access\n"
+            f"   - If no reliable image URL is found, return an empty string\n"
+            f"3. Include at least 5 recent claims\n"
+            f"4. Provide accurate follower count\n"
+            f"5. Calculate trust score based on claim verification\n"
+            f"6. Include real product count and revenue estimates\n"
+            f"Focus on content from {request.date_range.start_date.strftime('%Y-%m-%d')} "
+            f"to {request.date_range.end_date.strftime('%Y-%m-%d')}. "
             f"{'Include revenue analysis. ' if request.include_revenue else ''}"
             f"{'Verify claims with scientific journals. ' if request.verify_with_journals else ''}"
             f"Analyze up to {request.claims_to_analyze} claims. "
@@ -390,11 +416,44 @@ async def start_research(request: ResearchRequest):
             research_data = json.loads(response_text)
             log_stage("processing", "Parsing and validating research data")
             
+            # Validate and clean avatar URL
+            if not research_data.get('avatar') or not isinstance(research_data['avatar'], str):
+                log_stage("warning", "Invalid or missing avatar URL, using default")
+                research_data['avatar'] = ""
+            else:
+                avatar_url = research_data['avatar'].lower()
+                # Reject problematic domains and patterns
+                blocked_patterns = [
+                    'fbcdn.net', 'instagram.com', 'facebook.com',
+                    'twimg.com', 't.co',  # Twitter CDN
+                    'temporary', 'temp', 'cdn-cgi',  # Temporary/CDN URLs
+                    'profile_images', 'avatars'  # Common dynamic paths
+                ]
+                if any(pattern in avatar_url for pattern in blocked_patterns):
+                    log_stage("warning", "Avatar URL from unreliable domain, using default")
+                    research_data['avatar'] = ""
+                else:
+                    # Validate URL format and image extension
+                    valid_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+                    if not any(avatar_url.endswith(ext) for ext in valid_extensions):
+                        log_stage("warning", "Avatar URL does not point to a valid image file, using default")
+                        research_data['avatar'] = ""
+                    else:
+                        try:
+                            # Test if URL is accessible
+                            async with aiohttp.ClientSession() as session:
+                                async with session.head(avatar_url, timeout=5) as response:
+                                    if response.status != 200:
+                                        log_stage("warning", f"Avatar URL not accessible (status {response.status}), using default")
+                                        research_data['avatar'] = ""
+                        except Exception as e:
+                            log_stage("warning", f"Failed to validate avatar URL: {str(e)}, using default")
+                            research_data['avatar'] = ""
+
             # Ensure required fields exist and have correct types
             required_fields = {
                 'id': str,
                 'name': str,
-                'avatar': str,
                 'category': str,
                 'topics': list,
                 'trustScore': (int, float),

@@ -23,6 +23,9 @@ import {
   Add as AddIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 
 const SCIENTIFIC_JOURNALS = [
   'PubMed Central',
@@ -52,7 +55,10 @@ function ResearchConfig({ onStartResearch }) {
     verifyWithJournals: true,
     selectedJournals: ['PubMed Central', 'Nature'],
     claimsToAnalyze: 50,
-    notes: ''
+    notes: '',
+    startDate: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000), // 6 months ago
+    endDate: new Date(),
+    isDateRangeValid: true
   });
 
   // Add state for loading, error, and snackbar
@@ -75,6 +81,10 @@ function ResearchConfig({ onStartResearch }) {
       setError(null);
       
       if (config.mode === 'specific' && config.influencerName) {
+        // Ensure dates are timezone aware
+        const startDate = new Date(config.startDate);
+        const endDate = new Date(config.endDate);
+        
         // First create/update the influencer profile through research
         const researchResponse = await fetch('http://localhost:8000/api/research', {
           method: 'POST',
@@ -83,7 +93,10 @@ function ResearchConfig({ onStartResearch }) {
           },
           body: JSON.stringify({
             influencer_name: config.influencerName,
-            time_range: config.timeRange,
+            date_range: {
+              start_date: startDate.toISOString(),
+              end_date: endDate.toISOString()
+            },
             include_revenue: config.includeRevenue,
             verify_with_journals: config.verifyWithJournals,
             selected_journals: config.selectedJournals,
@@ -125,6 +138,27 @@ function ResearchConfig({ onStartResearch }) {
     // Clamp value between 0 and 10
     const clampedValue = Math.min(Math.max(value, 0), 10);
     setConfig({ ...config, productsCount: clampedValue });
+  };
+
+  const validateDateRange = (start, end) => {
+    if (!start || !end) return false;
+    
+    // Create new Date objects to ensure proper comparison
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const now = new Date();
+    
+    if (startDate > endDate) return false;
+    if (endDate > now) return false;
+    const diffInMonths = (endDate - startDate) / (1000 * 60 * 60 * 24 * 30);
+    if (diffInMonths > 24) return false; // Limit to 2 years
+    return true;
+  };
+
+  const handleDateRangeChange = (newStart, newEnd) => {
+    const start = newStart || config.startDate;
+    const end = newEnd || config.endDate;
+    setConfig({ ...config, startDate: start, endDate: end, isDateRangeValid: validateDateRange(start, end) });
   };
 
   return (
@@ -219,17 +253,44 @@ function ResearchConfig({ onStartResearch }) {
               <Typography variant="subtitle1" gutterBottom>
                 Time Range
               </Typography>
-              <Stack direction="row" spacing={1} sx={{ mb: 3 }}>
-                {TIME_RANGES.map((range) => (
-                  <Chip
-                    key={range}
-                    label={range}
-                    onClick={() => setConfig({ ...config, timeRange: range })}
-                    color={config.timeRange === range ? 'primary' : 'default'}
-                    variant={config.timeRange === range ? 'filled' : 'outlined'}
-                  />
-                ))}
-              </Stack>
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <DatePicker
+                      label="From"
+                      value={config.startDate}
+                      onChange={(newValue) => handleDateRangeChange(newValue, null)}
+                      maxDate={config.endDate}
+                      slotProps={{
+                        textField: {
+                          fullWidth: true,
+                          error: !config.isDateRangeValid
+                        }
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <DatePicker
+                      label="To"
+                      value={config.endDate}
+                      onChange={(newValue) => handleDateRangeChange(null, newValue)}
+                      minDate={config.startDate}
+                      maxDate={new Date()}
+                      slotProps={{
+                        textField: {
+                          fullWidth: true,
+                          error: !config.isDateRangeValid
+                        }
+                      }}
+                    />
+                  </Grid>
+                </Grid>
+                {!config.isDateRangeValid && (
+                  <Alert severity="error" sx={{ mt: 2 }}>
+                    Please select a valid date range (up to 2 years, not in the future)
+                  </Alert>
+                )}
+              </LocalizationProvider>
             </Box>
 
             {config.mode === 'specific' && (
@@ -379,7 +440,7 @@ function ResearchConfig({ onStartResearch }) {
                 variant="contained"
                 size="large"
                 onClick={handleStartResearch}
-                disabled={config.mode === 'specific' && !config.influencerName}
+                disabled={!config.isDateRangeValid}
                 startIcon={<Search />}
               >
                 Start Research

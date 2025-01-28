@@ -11,6 +11,8 @@ import {
   Container,
   Avatar
 } from '@mui/material';
+import { LocalizationProvider } from '@mui/x-date-pickers';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import ResearchConfig from './components/ResearchConfig';
 import InfluencerLeaderboard from './components/InfluencerLeaderboard';
 import InfluencerProfile from './components/InfluencerProfile';
@@ -110,61 +112,63 @@ function App() {
 
   return (
     <ThemeProvider theme={darkTheme}>
-      <CssBaseline />
-      <Router>
-        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-          <AppBar position="static" color="transparent" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Toolbar>
-              <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-                <Avatar src="/logo.png" sx={{ width: 32, height: 32, mr: 1 }} />
-                <Typography variant="h6" component={Link} to="/" sx={{ color: 'text.primary', textDecoration: 'none' }}>
-                  VerifyInfluencers
-                </Typography>
-              </Box>
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <Button component={Link} to="/leaderboard" color="inherit">Leaderboard</Button>
-                <Button component={Link} to="/products" color="inherit">Products</Button>
-                <Button component={Link} to="/monetization" color="inherit">Monetization</Button>
-                <Button component={Link} to="/about" color="inherit">About</Button>
-                <Button component={Link} to="/contact" color="inherit">Contact</Button>
-                <Button component={Link} to="/admin" color="inherit">Admin</Button>
-              </Box>
-            </Toolbar>
-          </AppBar>
+      <LocalizationProvider dateAdapter={AdapterDateFns}>
+        <CssBaseline />
+        <Router>
+          <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+            <AppBar position="static" color="transparent" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+              <Toolbar>
+                <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
+                  <Avatar src="/logo.png" sx={{ width: 32, height: 32, mr: 1 }} />
+                  <Typography variant="h6" component={Link} to="/" sx={{ color: 'text.primary', textDecoration: 'none' }}>
+                    VerifyInfluencers
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <Button component={Link} to="/leaderboard" color="inherit">Leaderboard</Button>
+                  <Button component={Link} to="/products" color="inherit">Products</Button>
+                  <Button component={Link} to="/monetization" color="inherit">Monetization</Button>
+                  <Button component={Link} to="/about" color="inherit">About</Button>
+                  <Button component={Link} to="/contact" color="inherit">Contact</Button>
+                  <Button component={Link} to="/admin" color="inherit">Admin</Button>
+                </Box>
+              </Toolbar>
+            </AppBar>
 
-          <Container maxWidth="xl" sx={{ flex: 1, py: 3 }}>
-            <Routes>
-              <Route 
-                path="/" 
-                element={
-                  <ResearchConfig 
-                    onStartResearch={handleStartResearch} 
-                  />
-                } 
-              />
-              <Route 
-                path="/leaderboard" 
-                element={
-                  <InfluencerLeaderboard 
-                    influencers={influencers}
-                    loading={loading}
-                    error={error}
-                  />
-                } 
-              />
-              <Route 
-                path="/profile/:id" 
-                element={
-                  <InfluencerProfile 
-                    loading={loading}
-                    error={error}
-                  />
-                } 
-              />
-            </Routes>
-          </Container>
-        </Box>
-      </Router>
+            <Container maxWidth="xl" sx={{ flex: 1, py: 3 }}>
+              <Routes>
+                <Route 
+                  path="/" 
+                  element={
+                    <ResearchConfig 
+                      onStartResearch={handleStartResearch} 
+                    />
+                  } 
+                />
+                <Route 
+                  path="/leaderboard" 
+                  element={
+                    <InfluencerLeaderboard 
+                      influencers={influencers}
+                      loading={loading}
+                      error={error}
+                    />
+                  } 
+                />
+                <Route 
+                  path="/profile/:id" 
+                  element={
+                    <InfluencerProfile 
+                      loading={loading}
+                      error={error}
+                    />
+                  } 
+                />
+              </Routes>
+            </Container>
+          </Box>
+        </Router>
+      </LocalizationProvider>
     </ThemeProvider>
   );
 }

@@ -24,14 +24,21 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel
+  InputLabel,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  useTheme
 } from '@mui/material';
 import {
   FilterList,
   Search,
   CheckCircle,
   Cancel,
-  Help
+  Help,
+  DateRange
 } from '@mui/icons-material';
 import { Line } from 'react-chartjs-2';
 import {
@@ -44,6 +51,9 @@ import {
   Tooltip as ChartTooltip,
   Legend
 } from 'chart.js';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import ResearchProgress from './ResearchProgress';
 
 ChartJS.register(
@@ -58,6 +68,7 @@ ChartJS.register(
 
 const InfluencerProfile = () => {
   const { id } = useParams();
+  const theme = useTheme();
   const [influencer, setInfluencer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -67,6 +78,32 @@ const InfluencerProfile = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [researchLogs, setResearchLogs] = useState([]);
+  const [dateRangeDialog, setDateRangeDialog] = useState(false);
+  const [startDate, setStartDate] = useState(new Date(Date.now() - 180 * 24 * 60 * 60 * 1000)); // 6 months ago
+  const [endDate, setEndDate] = useState(new Date());
+  const [isDateRangeValid, setIsDateRangeValid] = useState(true);
+
+  const validateDateRange = (start, end) => {
+    if (!start || !end) return false;
+    if (start > end) return false;
+    if (end > new Date()) return false;
+    const diffInMonths = (end - start) / (1000 * 60 * 60 * 24 * 30);
+    if (diffInMonths > 24) return false; // Limit to 2 years
+    return true;
+  };
+
+  const handleDateRangeChange = (newStart, newEnd) => {
+    setStartDate(newStart);
+    setEndDate(newEnd);
+    setIsDateRangeValid(validateDateRange(newStart, newEnd));
+  };
+
+  const handleDateRangeSubmit = () => {
+    if (isDateRangeValid) {
+      setDateRangeDialog(false);
+      loadInfluencerData(); // This will trigger a new research with the updated date range
+    }
+  };
 
   const loadInfluencerData = async () => {
     try {
@@ -75,17 +112,20 @@ const InfluencerProfile = () => {
       
       // Start polling for data
       let attempts = 0;
-      const maxAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max
+      const maxAttempts = 30;
       
       const logStage = (stage, message) => {
         console.log(`[${id}] ${stage}: ${message}`);
         setResearchStage(stage);
       };
 
-      // First, initiate the research
+      // First, initiate the research with custom date range
       const researchRequest = {
         influencer_name: id,
-        time_range: "last 6 months",
+        date_range: {
+          start_date: startDate.toISOString(),
+          end_date: endDate.toISOString()
+        },
         include_revenue: true,
         verify_with_journals: true,
         selected_journals: ["PubMed Central", "Nature", "Science"],
@@ -268,10 +308,48 @@ const InfluencerProfile = () => {
         <Grid container spacing={3} alignItems="center">
           <Grid item>
             <Avatar
-              src={influencer?.avatar}
+              src={influencer?.avatar || undefined}
               alt={influencer?.name}
-              sx={{ width: 120, height: 120 }}
-            />
+              sx={{
+                width: 120,
+                height: 120,
+                border: '3px solid',
+                borderColor: 'primary.main',
+                boxShadow: 3,
+                backgroundColor: theme => {
+                  const color = theme.palette.primary.light;
+                  // Generate a unique color based on the name
+                  if (influencer?.name) {
+                    const hash = influencer.name.split('').reduce((acc, char) => {
+                      return char.charCodeAt(0) + ((acc << 5) - acc);
+                    }, 0);
+                    return `hsl(${hash % 360}, 70%, 50%)`;
+                  }
+                  return color;
+                },
+                color: 'white',
+                fontSize: '2.5rem',
+                fontWeight: 'bold',
+                '& img': {
+                  objectFit: 'cover',
+                  width: '100%',
+                  height: '100%'
+                }
+              }}
+              imgProps={{
+                onError: (e) => {
+                  console.warn('Failed to load avatar image, using fallback');
+                  e.target.onerror = null; // Prevent infinite loop
+                  e.target.src = ''; // Clear the src to show the fallback
+                  e.target.style.display = 'none'; // Hide the broken image
+                },
+                loading: 'lazy',
+                referrerPolicy: 'no-referrer',
+                crossOrigin: 'anonymous'
+              }}
+            >
+              {influencer?.name?.charAt(0).toUpperCase() || '?'}
+            </Avatar>
           </Grid>
           <Grid item xs>
             <Typography variant="h4" gutterBottom>{influencer?.name}</Typography>
@@ -301,8 +379,68 @@ const InfluencerProfile = () => {
               </CardContent>
             </Card>
           </Grid>
+          <Grid item>
+            <IconButton 
+              color="primary" 
+              onClick={() => setDateRangeDialog(true)}
+              title="Change Date Range"
+            >
+              <DateRange />
+            </IconButton>
+          </Grid>
         </Grid>
       </Paper>
+
+      {/* Date Range Dialog */}
+      <Dialog open={dateRangeDialog} onClose={() => setDateRangeDialog(false)}>
+        <DialogTitle>Select Date Range</DialogTitle>
+        <DialogContent>
+          <LocalizationProvider dateAdapter={AdapterDateFns}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+              <DatePicker
+                label="From"
+                value={startDate}
+                onChange={(newValue) => handleDateRangeChange(newValue, endDate)}
+                maxDate={endDate}
+                slotProps={{
+                  textField: {
+                    fullWidth: true,
+                    error: !isDateRangeValid
+                  }
+                }}
+              />
+              <DatePicker
+                label="To"
+                value={endDate}
+                onChange={(newValue) => handleDateRangeChange(startDate, newValue)}
+                minDate={startDate}
+                maxDate={new Date()}
+                slotProps={{
+                  textField: {
+                    fullWidth: true,
+                    error: !isDateRangeValid
+                  }
+                }}
+              />
+              {!isDateRangeValid && (
+                <Alert severity="error" sx={{ mt: 1 }}>
+                  Please select a valid date range (up to 2 years, not in the future)
+                </Alert>
+              )}
+            </Box>
+          </LocalizationProvider>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDateRangeDialog(false)}>Cancel</Button>
+          <Button 
+            onClick={handleDateRangeSubmit} 
+            disabled={!isDateRangeValid}
+            variant="contained"
+          >
+            Apply
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Statistics Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
