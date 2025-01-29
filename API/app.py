@@ -76,8 +76,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # Local development
-        "https://claimmaster.netlify.app",  # Netlify domain
-        "https://*.netlify.app",  # All Netlify preview deployments
+        "https://claimmaster.netlify.app",  # Production Netlify domain
+        "https://*.netlify.app",  # Preview deployments
     ],
     allow_credentials=True,
     allow_methods=["*"],
