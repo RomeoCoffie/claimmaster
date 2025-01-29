@@ -17,7 +17,9 @@ services:
       - key: ENTREZ_API_KEY
         sync: false
       - key: REDIS_URL
-        sync: false
+        value: redis://localhost:6379  # This will be overridden in the Render dashboard
+      - key: REDIS_EXPIRATION
+        value: "3600"
       - key: PORT
         value: 10000
     autoDeploy: true  # Enable automatic deployments

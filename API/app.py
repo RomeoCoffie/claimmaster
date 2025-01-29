@@ -14,55 +14,56 @@ import aiohttp
 import logging
 import traceback
 import time
-import redis
-from redis.exceptions import RedisError
+from redis import Redis, RedisError
 
 # Load environment variables
 load_dotenv()
 
-# Redis Configuration
-REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
-REDIS_EXPIRE_TIME = 60 * 60 * 24  # 24 hours in seconds
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Initialize Redis
+# Initialize Redis client with environment variable
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
+REDIS_EXPIRATION = int(os.getenv('REDIS_EXPIRATION', 3600))  # 1 hour default
+
+# Initialize Redis client
+redis_client = None
 try:
-    redis_client = redis.from_url(REDIS_URL)
+    redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
     redis_client.ping()  # Test connection
-    logger.info("Redis connection established successfully")
+    logger.info("Successfully connected to Redis")
 except RedisError as e:
     logger.warning(f"Failed to connect to Redis: {str(e)}. Continuing without caching.")
     redis_client = None
 
 def cache_key(influencer_name: str) -> str:
     """Generate a cache key for an influencer"""
-    return f"research:{influencer_name.lower().replace(' ', '_')}"
+    return f"research:{influencer_name}"
 
-async def get_cached_research(influencer_name: str):
+def get_cached_research(influencer_name: str):
     """Get cached research data if available"""
     if not redis_client:
         return None
-        
     try:
-        cached_data = redis_client.get(cache_key(influencer_name))
-        if cached_data:
-            return json.loads(cached_data)
-    except (RedisError, json.JSONDecodeError) as e:
-        logger.warning(f"Error retrieving from cache: {str(e)}")
-    return None
+        cached = redis_client.get(cache_key(influencer_name))
+        return cached
+    except RedisError as e:
+        logger.error(f"Error retrieving from cache: {str(e)}")
+        return None
 
-async def cache_research_data(influencer_name: str, data: dict):
+def cache_research_data(influencer_name: str, data: dict):
     """Cache research data"""
     if not redis_client:
         return
-        
     try:
         redis_client.setex(
             cache_key(influencer_name),
-            REDIS_EXPIRE_TIME,
-            json.dumps(data)
+            REDIS_EXPIRATION,
+            str(data)
         )
-    except (RedisError, TypeError) as e:
-        logger.warning(f"Error caching data: {str(e)}")
+    except RedisError as e:
+        logger.error(f"Error setting cache: {str(e)}")
 
 app = FastAPI(
     title="Health Influencer Analysis API",
@@ -333,17 +334,6 @@ async def verify_claim(request: VerifyClaimRequest):
 # Dictionary to store research status
 research_status = {}
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('research.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
 @app.get("/api/influencers/{influencer_id}")
 async def get_influencer(influencer_id: str):
     """Get detailed information about a specific influencer"""
@@ -351,7 +341,7 @@ async def get_influencer(influencer_id: str):
         logger.info(f"Getting influencer data for: {influencer_id}")
         
         # Try to get from cache first
-        cached_data = await get_cached_research(influencer_id)
+        cached_data = get_cached_research(influencer_id)
         if cached_data:
             logger.info(f"Returning cached data for {influencer_id}")
             return cached_data
@@ -361,7 +351,7 @@ async def get_influencer(influencer_id: str):
             if research_status[influencer_id]["stage"] == "complete":
                 # Cache and return the stored research data if available
                 if "data" in research_status[influencer_id]:
-                    await cache_research_data(influencer_id, research_status[influencer_id]["data"])
+                    cache_research_data(influencer_id, research_status[influencer_id]["data"])
                     return research_status[influencer_id]["data"]
             
             # Return status if still in progress
@@ -382,10 +372,10 @@ async def start_research(request: ResearchRequest):
     """Start research on an influencer"""
     try:
         # Check cache first
-        cached_data = await get_cached_research(request.influencer_name)
+        cached_data = get_cached_research(request.influencer_name)
         if cached_data:
             logger.info(f"Returning cached research for {request.influencer_name}")
-            return {**cached_data, "cached": True}
+            return {**json.loads(cached_data), "cached": True}
             
         logger.info(f"Starting research for influencer: {request.influencer_name}")
         
@@ -564,7 +554,7 @@ async def start_research(request: ResearchRequest):
             research_data["logs"] = research_status[request.influencer_name]["logs"]
             
             # After successful research, cache the results
-            await cache_research_data(request.influencer_name, research_data)
+            cache_research_data(request.influencer_name, research_data)
             
             return research_data
             
