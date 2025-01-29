@@ -60,7 +60,7 @@ def cache_research_data(influencer_name: str, data: dict):
         redis_client.setex(
             cache_key(influencer_name),
             REDIS_EXPIRATION,
-            str(data)
+            json.dumps(data)  # Convert dict to JSON string
         )
     except RedisError as e:
         logger.error(f"Error setting cache: {str(e)}")
@@ -379,7 +379,11 @@ async def start_research(request: ResearchRequest):
         cached_data = get_cached_research(request.influencer_name)
         if cached_data:
             logger.info(f"Returning cached research for {request.influencer_name}")
-            return {**json.loads(cached_data), "cached": True}
+            try:
+                return {**json.loads(cached_data), "cached": True}
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid cached data for {request.influencer_name}, proceeding with new research")
+                # If cache is invalid, continue with new research
             
         logger.info(f"Starting research for influencer: {request.influencer_name}")
         
