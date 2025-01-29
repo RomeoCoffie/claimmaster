@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: claimmaster-api
+    env: python
+    region: ohio  # Choose the region closest to your users
+    plan: free  # Specify the free tier
+    buildCommand: cd API && pip install -r requirements.txt
+    startCommand: cd API && uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.8.0
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      - key: ENTREZ_EMAIL
+        sync: false
+      - key: ENTREZ_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: PORT
+        value: 10000
+    autoDeploy: true  # Enable automatic deployments
+    healthCheckPath: /  # Path for health checks
+    numInstances: 1  # Number of instances to run 

@@ -115,6 +115,71 @@ A comprehensive platform for analyzing and verifying health influencers' claims 
 
 ## Deployment
 
+### Backend Deployment (Render)
+
+Render offers a free tier for web services that's perfect for hobby projects:
+
+1. Create `render.yaml` in project root:
+   ```yaml
+   services:
+     - type: web
+       name: claimmaster-api
+       env: python
+       buildCommand: cd API && pip install -r requirements.txt
+       startCommand: cd API && uvicorn app:app --host 0.0.0.0 --port $PORT
+       envVars:
+         - key: PYTHON_VERSION
+           value: 3.8.0
+         - key: PERPLEXITY_API_KEY
+           sync: false
+         - key: ENTREZ_EMAIL
+           sync: false
+         - key: ENTREZ_API_KEY
+           sync: false
+         - key: REDIS_URL
+           sync: false
+   ```
+
+2. Create a `requirements.txt` in the API directory if not already present.
+
+3. Deploy to Render:
+   - Create account at [render.com](https://render.com)
+   - Connect your GitHub repository
+   - Click "New Web Service"
+   - Choose "Build and deploy from a render.yaml"
+   - Add environment variables in the Render dashboard:
+     ```
+     PERPLEXITY_API_KEY=your_api_key
+     ENTREZ_EMAIL=your_email
+     ENTREZ_API_KEY=your_key
+     REDIS_URL=your_redis_url
+     ```
+
+4. Get your production URL from Render dashboard (e.g., `https://claimmaster-api.onrender.com`)
+
+### Redis Deployment (Redis Cloud or Upstash)
+
+For Redis, you have two free options:
+
+1. **Upstash** (Recommended for hobby projects):
+   - Create account at [upstash.com](https://upstash.com)
+   - Create a new Redis database
+   - Get your Redis URL
+   - Free tier includes:
+     - 1 database
+     - 256MB storage
+     - 10,000 requests/day
+
+2. **Redis Cloud**:
+   - Create account at [Redis Cloud](https://redis.com/try-free/)
+   - Create a new subscription and database
+   - Get your Redis URL
+   - Free tier includes:
+     - 30MB database
+     - 30 connections
+
+Add the Redis URL to your Render environment variables.
+
 ### Frontend Deployment (Netlify)
 
 1. Create `netlify.toml` in project root:
@@ -130,71 +195,96 @@ A comprehensive platform for analyzing and verifying health influencers' claims 
      status = 200
 
    [context.production.environment]
-     REACT_APP_API_URL = "YOUR_PRODUCTION_API_URL"
+     REACT_APP_API_URL = "https://claimmaster-api.onrender.com"  # Your Render backend URL
+
+   [context.deploy-preview.environment]
+     REACT_APP_API_URL = "https://claimmaster-api-staging.onrender.com"
    ```
 
-2. Deploy to Netlify:
+2. Update CORS settings in `app.py`:
+   ```python
+   app.add_middleware(
+       CORSMiddleware,
+       allow_origins=[
+           "http://localhost:3000",  # Local development
+           "https://your-app.netlify.app",  # Production frontend
+           "https://your-custom-domain.com",  # If using custom domain
+       ],
+       allow_credentials=True,
+       allow_methods=["*"],
+       allow_headers=["*"],
+   )
+   ```
+
+3. Deploy to Netlify:
    - Connect your GitHub repository
    - Configure build settings:
      - Base directory: frontend
      - Build command: npm run build
      - Publish directory: build
-   - Add environment variables in Netlify UI
+   - Add environment variables in Netlify UI:
+     ```
+     NODE_VERSION: 18.0.0
+     REACT_APP_API_URL: https://claimmaster-api.onrender.com
+     ```
 
-### Backend Deployment
+### Production Architecture
 
-1. Set up your preferred hosting platform (e.g., Heroku, DigitalOcean)
-2. Configure environment variables
-3. Set up Redis instance (e.g., Redis Cloud)
-4. Update CORS settings in `app.py` with your frontend domain
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│    Frontend     │     │     Backend      │     │     Redis       │
+│    (Netlify)    │────>│    (Render)      │────>│   (Upstash)     │
+│                 │     │                  │     │                 │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+        ▲                        │
+        │                        ▼
+┌─────────────────┐     ┌──────────────────┐
+│   User's        │     │  Perplexity AI   │
+│   Browser       │     │      API         │
+└─────────────────┘     └──────────────────┘
+```
+
+### Free Tier Limitations
+
+1. **Backend (Render)**:
+   - Free tier includes:
+     - 750 hours/month of runtime
+     - Spins down after 15 minutes of inactivity
+     - Spins up automatically on new requests (may take 30s for cold starts)
+     - 512MB RAM
+     - Shared CPU
+
+2. **Frontend (Netlify)**:
+   - Free tier includes:
+     - 100GB bandwidth/month
+     - Unlimited sites
+     - Build minutes
+     - Continuous deployment
+
+3. **Redis (Upstash)**:
+   - Free tier includes:
+     - 1 database
+     - 256MB storage
+     - 10,000 requests/day
+     - No auto-sleep
+
+### Performance Considerations
+
+1. **Cold Starts**:
+   - Render free tier has cold starts (30s spin-up time)
+   - First request after inactivity will be slower
+   - Consider implementing a warming mechanism
+
+2. **Caching Strategy**:
+   - Use Redis aggressively to minimize API calls
+   - Implement client-side caching where appropriate
+   - Consider browser caching for static assets
+
+3. **Rate Limiting**:
+   - Implement rate limiting to stay within free tiers
+   - Monitor usage across all services
+   - Set up alerts for approaching limits
 
 ## API Documentation
 
-Access the API documentation at `/docs` when running the backend server.
-
-### Key Endpoints
-
-- `POST /api/research`: Start research on specific influencer
-- `GET /api/research/status`: Get current research status
-- `POST /api/research/discover`: Discover new influencers
-- `GET /api/influencers/{influencer_id}`: Get influencer details
-
-## Caching System
-
-The application uses Redis for caching research results:
-
-- Cache Duration: 24 hours
-- Cached Data: Complete research results
-- Cache Key Format: `research:{influencer_name}`
-- Graceful Fallback: System works without Redis
-
-## Research Flow
-
-1. **Initial Request**:
-   - User submits research request
-   - System checks Redis cache
-   - If cached, returns immediate response
-
-2. **Research Process**:
-   - Gathering influencer data
-   - Analyzing claims
-   - Verifying with scientific journals
-   - Calculating trust scores
-
-3. **Progress Tracking**:
-   - Real-time status updates
-   - Stage progression
-   - Error handling
-   - Research logs
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details. 
+Access the API documentation at `/docs`
