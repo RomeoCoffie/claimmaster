@@ -347,45 +347,78 @@ async def get_influencer(influencer_id: str):
         # Try to get from cache first
         cached_data = get_cached_research(influencer_id)
         if cached_data:
-            logger.info(f"Returning cached data for {influencer_id}")
-            return cached_data
+            try:
+                parsed_data = json.loads(cached_data)
+                logger.info(f"Returning cached data for {influencer_id}")
+                return parsed_data
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid cached data for {influencer_id}")
+                # If cache is invalid, continue to check research status
         
         # Check if research is still in progress
         if influencer_id in research_status:
-            if research_status[influencer_id]["stage"] == "complete":
-                # Cache and return the stored research data if available
-                if "data" in research_status[influencer_id]:
-                    cache_research_data(influencer_id, research_status[influencer_id]["data"])
-                    return research_status[influencer_id]["data"]
+            status = research_status[influencer_id]
             
-            # Return status if still in progress
-            status_data = {
-                "status": research_status[influencer_id]["stage"],
-                "message": "Research in progress",
-                "logs": research_status[influencer_id].get("logs", [])
-            }
-            if "error" in research_status[influencer_id]:
-                status_data["error"] = research_status[influencer_id]["error"]
-            return status_data
+            if status["stage"] == "complete":
+                if "data" in status:
+                    # Cache the data if not already cached
+                    cache_research_data(influencer_id, status["data"])
+                    return status["data"]
+            elif status["stage"] == "error":
+                # Clear the research status on error
+                del research_status[influencer_id]
+                raise HTTPException(status_code=500, detail=status.get("error", "Research failed"))
+            else:
+                # Research is still in progress
+                return {
+                    "status": status["stage"],
+                    "message": "Research in progress",
+                    "logs": status.get("logs", [])
+                }
+        
+        # No cached data and no research in progress
+        raise HTTPException(status_code=404, detail="Research not found")
             
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error getting influencer data: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/research")
 async def start_research(request: ResearchRequest):
     """Start research on an influencer"""
     try:
+        # Check if research is already in progress
+        if request.influencer_name in research_status:
+            current_status = research_status[request.influencer_name]
+            if current_status["stage"] not in ["complete", "error"]:
+                return {
+                    "status": current_status["stage"],
+                    "message": "Research already in progress",
+                    "logs": current_status.get("logs", [])
+                }
+        
         # Check cache first
         cached_data = get_cached_research(request.influencer_name)
         if cached_data:
-            logger.info(f"Returning cached research for {request.influencer_name}")
             try:
-                return {**json.loads(cached_data), "cached": True}
-            except json.JSONDecodeError as e:
-                logger.warning(f"Invalid cached data for {request.influencer_name}, proceeding with new research")
-                # If cache is invalid, continue with new research
-            
+                parsed_data = json.loads(cached_data)
+                logger.info(f"Returning cached research for {request.influencer_name}")
+                return {**parsed_data, "cached": True}
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid cached data for {request.influencer_name}")
+                # Continue with new research
+        
+        # Start new research
         logger.info(f"Starting research for influencer: {request.influencer_name}")
+        
+        # Initialize research status
+        research_status[request.influencer_name] = {
+            "stage": "gathering_claims",
+            "started_at": datetime.now().isoformat(),
+            "logs": []
+        }
         
         # Get current time in UTC
         current_time = datetime.now(timezone.utc)
@@ -405,13 +438,6 @@ async def start_research(request: ResearchRequest):
         duration_months = (end_date - start_date).days / 30
         if duration_months > 24:
             raise HTTPException(status_code=400, detail="Date range cannot exceed 24 months")
-        
-        # Update research status
-        research_status[request.influencer_name] = {
-            "stage": "gathering_claims",
-            "started_at": datetime.now().isoformat(),
-            "logs": []
-        }
         
         def log_stage(stage: str, message: str):
             timestamp = datetime.now().isoformat()
