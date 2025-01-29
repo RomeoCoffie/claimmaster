@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Box,
@@ -102,7 +102,7 @@ const InfluencerProfile = () => {
     }
   };
 
-  const loadInfluencerData = async () => {
+  const loadInfluencerData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -210,11 +210,11 @@ const InfluencerProfile = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, startDate, endDate]);
 
   useEffect(() => {
     loadInfluencerData();
-  }, [id]);
+  }, [loadInfluencerData]);
 
   if (loading || researchStage !== 'Ready') {
     return <ResearchProgress 

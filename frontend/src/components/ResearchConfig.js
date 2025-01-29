@@ -119,8 +119,6 @@ function ResearchConfig({ onStartResearch }) {
           const errorData = await researchResponse.json();
           throw new Error(errorData.detail || 'Failed to start research');
         }
-
-        const researchData = await researchResponse.json();
         
         // Call the parent's onStartResearch callback
         await onStartResearch(config);
