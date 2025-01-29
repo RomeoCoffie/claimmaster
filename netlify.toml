@@ -1,0 +1,17 @@
+[build]
+  base = "frontend/"
+  command = "npm run build"
+  publish = "build"
+
+# Handle client-side routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Environment variable configuration
+[context.production.environment]
+  REACT_APP_API_URL = "YOUR_PRODUCTION_API_URL"
+
+[context.deploy-preview.environment]
+  REACT_APP_API_URL = "YOUR_STAGING_API_URL" 

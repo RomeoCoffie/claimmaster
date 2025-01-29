@@ -14,9 +14,55 @@ import aiohttp
 import logging
 import traceback
 import time
+import redis
+from redis.exceptions import RedisError
 
 # Load environment variables
 load_dotenv()
+
+# Redis Configuration
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
+REDIS_EXPIRE_TIME = 60 * 60 * 24  # 24 hours in seconds
+
+# Initialize Redis
+try:
+    redis_client = redis.from_url(REDIS_URL)
+    redis_client.ping()  # Test connection
+    logger.info("Redis connection established successfully")
+except RedisError as e:
+    logger.warning(f"Failed to connect to Redis: {str(e)}. Continuing without caching.")
+    redis_client = None
+
+def cache_key(influencer_name: str) -> str:
+    """Generate a cache key for an influencer"""
+    return f"research:{influencer_name.lower().replace(' ', '_')}"
+
+async def get_cached_research(influencer_name: str):
+    """Get cached research data if available"""
+    if not redis_client:
+        return None
+        
+    try:
+        cached_data = redis_client.get(cache_key(influencer_name))
+        if cached_data:
+            return json.loads(cached_data)
+    except (RedisError, json.JSONDecodeError) as e:
+        logger.warning(f"Error retrieving from cache: {str(e)}")
+    return None
+
+async def cache_research_data(influencer_name: str, data: dict):
+    """Cache research data"""
+    if not redis_client:
+        return
+        
+    try:
+        redis_client.setex(
+            cache_key(influencer_name),
+            REDIS_EXPIRE_TIME,
+            json.dumps(data)
+        )
+    except (RedisError, TypeError) as e:
+        logger.warning(f"Error caching data: {str(e)}")
 
 app = FastAPI(
     title="Health Influencer Analysis API",
@@ -24,10 +70,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React app address
+    allow_origins=[
+        "http://localhost:3000",  # Local development
+        "https://your-netlify-app.netlify.app",  # Replace with your Netlify domain
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -301,11 +350,18 @@ async def get_influencer(influencer_id: str):
     try:
         logger.info(f"Getting influencer data for: {influencer_id}")
         
+        # Try to get from cache first
+        cached_data = await get_cached_research(influencer_id)
+        if cached_data:
+            logger.info(f"Returning cached data for {influencer_id}")
+            return cached_data
+        
         # Check if research is still in progress
         if influencer_id in research_status:
             if research_status[influencer_id]["stage"] == "complete":
-                # Return the stored research data if available
+                # Cache and return the stored research data if available
                 if "data" in research_status[influencer_id]:
+                    await cache_research_data(influencer_id, research_status[influencer_id]["data"])
                     return research_status[influencer_id]["data"]
             
             # Return status if still in progress
@@ -325,6 +381,12 @@ async def get_influencer(influencer_id: str):
 async def start_research(request: ResearchRequest):
     """Start research on an influencer"""
     try:
+        # Check cache first
+        cached_data = await get_cached_research(request.influencer_name)
+        if cached_data:
+            logger.info(f"Returning cached research for {request.influencer_name}")
+            return {**cached_data, "cached": True}
+            
         logger.info(f"Starting research for influencer: {request.influencer_name}")
         
         # Get current time in UTC
@@ -500,6 +562,9 @@ async def start_research(request: ResearchRequest):
             # Add status and logs to response
             research_data["status"] = "complete"
             research_data["logs"] = research_status[request.influencer_name]["logs"]
+            
+            # After successful research, cache the results
+            await cache_research_data(request.influencer_name, research_data)
             
             return research_data
             
