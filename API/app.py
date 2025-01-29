@@ -263,6 +263,7 @@ def query_perplexity(prompt: str) -> str:
     return result["choices"][0]["message"]["content"]
 
 @app.get("/")
+@app.head("/")
 async def root():
     """Root endpoint for health checks"""
     return {
