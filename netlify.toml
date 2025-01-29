@@ -11,7 +11,10 @@
 
 # Environment variable configuration
 [context.production.environment]
-  REACT_APP_API_URL = "YOUR_PRODUCTION_API_URL"
+  REACT_APP_API_URL = "https://claimmaster-api.onrender.com"
+
+[context.development.environment]
+  REACT_APP_API_URL = "http://localhost:8000"
 
 [context.deploy-preview.environment]
-  REACT_APP_API_URL = "YOUR_STAGING_API_URL" 
+  REACT_APP_API_URL = "https://claimmaster-api.onrender.com" 

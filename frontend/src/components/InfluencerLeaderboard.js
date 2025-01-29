@@ -48,7 +48,7 @@ function InfluencerLeaderboard() {
           
           const pollResearch = async () => {
             try {
-              const response = await fetch('http://localhost:8000/api/research/status');
+              const response = await fetch(`${process.env.REACT_APP_API_URL}/api/research/status`);
               if (!response.ok) {
                 throw new Error('Failed to fetch research status');
               }
@@ -93,7 +93,7 @@ function InfluencerLeaderboard() {
           
         } else {
           // Otherwise fetch existing influencers
-          const response = await fetch('http://localhost:8000/api/influencers');
+          const response = await fetch(`${process.env.REACT_APP_API_URL}/api/influencers`);
           if (!response.ok) {
             throw new Error('Failed to fetch influencers');
           }

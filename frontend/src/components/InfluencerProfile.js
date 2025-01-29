@@ -130,7 +130,7 @@ const InfluencerProfile = () => {
       };
 
       // Start the research process
-      const startResearch = await fetch('http://localhost:8000/api/research', {
+      const startResearch = await fetch(`${process.env.REACT_APP_API_URL}/api/research`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -146,7 +146,7 @@ const InfluencerProfile = () => {
       logStage('Searching for influencer', 'Starting research process');
       
       while (attempts < maxAttempts) {
-        const response = await fetch(`http://localhost:8000/api/influencers/${encodeURIComponent(id)}`);
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/influencers/${encodeURIComponent(id)}`);
         
         if (!response.ok) {
           console.error(`[${id}] API Error:`, response.status, response.statusText);

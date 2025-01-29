@@ -6,7 +6,7 @@ services:
     plan: free  # Specify the free tier
     rootDir: API  # Specify the API directory as root
     buildCommand: pip install -r requirements.txt  # No need for cd since we set rootDir
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.8.0
@@ -17,11 +17,9 @@ services:
       - key: ENTREZ_API_KEY
         sync: false
       - key: REDIS_URL
-        value: redis://localhost:6379  # This will be overridden in the Render dashboard
+        value: redis://red-cud2p4tumphs73dfjtig:6379  # Use your actual Redis URL
       - key: REDIS_EXPIRATION
         value: "3600"
-      - key: PORT
-        value: 10000
     autoDeploy: true  # Enable automatic deployments
-    healthCheckPath: /  # Path for health checks
+    healthCheckPath: /docs  # Change to /docs which is available in FastAPI
     numInstances: 1  # Number of instances to run 

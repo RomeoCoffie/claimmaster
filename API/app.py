@@ -76,7 +76,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # Local development
-        "https://your-netlify-app.netlify.app",  # Replace with your Netlify domain
+        "https://claimmaster.netlify.app",  # Netlify domain
+        "https://*.netlify.app",  # All Netlify preview deployments
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -263,9 +264,11 @@ def query_perplexity(prompt: str) -> str:
 
 @app.get("/")
 async def root():
+    """Root endpoint for health checks"""
     return {
         "status": "ok",
-        "message": "Health Influencer Analysis API is running"
+        "message": "ClaimMaster API is running",
+        "version": "1.0.0"
     }
 
 @app.post("/research/specific")
