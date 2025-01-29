@@ -96,7 +96,7 @@ function ResearchConfig({ onStartResearch }) {
         const endDate = new Date(config.endDate);
         
         // First create/update the influencer profile through research
-        const researchResponse = await fetch('http://localhost:8000/api/research', {
+        const researchResponse = await fetch(`${process.env.REACT_APP_API_URL}/api/research`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -140,7 +140,7 @@ function ResearchConfig({ onStartResearch }) {
         });
 
         // Start the research process in the background
-        const researchResponse = await fetch('http://localhost:8000/api/research/discover', {
+        const researchResponse = await fetch(`${process.env.REACT_APP_API_URL}/api/research/discover`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
