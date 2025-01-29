@@ -8,7 +8,6 @@ import {
   Grid,
   Switch,
   FormControlLabel,
-  IconButton,
   Chip,
   Stack,
   InputAdornment,
@@ -19,8 +18,7 @@ import {
 } from '@mui/material';
 import {
   ArrowBack,
-  Search,
-  Add as AddIcon
+  Search
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -35,13 +33,6 @@ const SCIENTIFIC_JOURNALS = [
   'The Lancet',
   'New England Journal of Medicine',
   'JAMA Network'
-];
-
-const TIME_RANGES = [
-  'Last Week',
-  'Last Month',
-  'Last Year',
-  'All Time'
 ];
 
 const HEALTH_CATEGORIES = [

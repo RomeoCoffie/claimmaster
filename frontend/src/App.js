@@ -6,7 +6,6 @@ import {
   AppBar,
   Toolbar,
   Typography,
-  IconButton,
   Button,
   Container,
   Avatar

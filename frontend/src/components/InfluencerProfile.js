@@ -15,7 +15,6 @@ import {
   TableRow,
   Alert,
   Snackbar,
-  CircularProgress,
   Card,
   CardContent,
   Divider,
@@ -29,8 +28,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button,
-  useTheme
+  Button
 } from '@mui/material';
 import {
   FilterList,
@@ -68,7 +66,6 @@ ChartJS.register(
 
 const InfluencerProfile = () => {
   const { id } = useParams();
-  const theme = useTheme();
   const [influencer, setInfluencer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
