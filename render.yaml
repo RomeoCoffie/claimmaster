@@ -2,9 +2,10 @@ services:
   - type: web
     name: claimmaster-api
     env: python
-    region: ohio  # Choose the region closest to your users
+    region: Oregon  # Choose the region closest to your users
     plan: free  # Specify the free tier
-    buildCommand: pip install -r requirements.txt
+    rootDir: API  # Specify the API directory as root
+    buildCommand: pip install -r requirements.txt  # No need for cd since we set rootDir
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
