@@ -1,25 +1,11 @@
 services:
   - type: web
-    name: claimmaster-api
+    name: claimmaster
     env: python
-    region: Oregon  # Choose the region closest to your users
-    plan: free  # Specify the free tier
-    rootDir: API  # Specify the API directory as root
-    buildCommand: pip install -r requirements.txt  # No need for cd since we set rootDir
+    region: oregon
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --worker-class uvicorn.workers.UvicornWorker --timeout 120
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.8.0
-      - key: PERPLEXITY_API_KEY
-        sync: false
-      - key: ENTREZ_EMAIL
-        sync: false
-      - key: ENTREZ_API_KEY
-        sync: false
-      - key: REDIS_URL
-        value: redis://red-cud2p4tumphs73dfjtig:6379  # Use your actual Redis URL
-      - key: REDIS_EXPIRATION
-        value: "3600"
-    autoDeploy: true  # Enable automatic deployments
-    healthCheckPath: /docs  # Change to /docs which is available in FastAPI
+    rootDir: API
+    healthCheckPath: /
+    autoDeploy: true
     numInstances: 1  # Number of instances to run 
